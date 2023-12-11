@@ -45,7 +45,7 @@ where K: Eq + Hash
 {
     hash: HashMap<KeyRef<K>, NonNull<Node<K, V>>>,
     capacity: usize,
-    head: Link<K, V>,
+    head: Link<K, V>,           // 最老未使用的
     tail: Link<K, V>
 }
 
@@ -86,12 +86,26 @@ where K: Eq + Hash
         Ok(())
     }
 
-    fn attach(&mut self, _node: &NonNull<Node<K, V>>) {
-        todo!()
+    /// 新结点添加到尾部，头部是老的，尾部是新的 
+    fn attach(&mut self, new: &NonNull<Node<K, V>>) {
+        unsafe {
+            if let Some(old) = self.tail {
+                (*old.as_ptr()).next = Some(*new);
+                (*new.as_ptr()).prev = Some(old);
+            } else {
+                self.head = Some(*new);
+            }
+            self.tail = Some(*new);
+        }
     }
 
-    fn detach(&mut self, _node: &NonNull<Node<K, V>>) {
-        todo!()
+    fn detach(&mut self, new: &NonNull<Node<K, V>>) {
+        unsafe {
+            if self.head == Some(*new) && self.tail == Some(*new) {
+                
+            }
+            // let prev= (*new.as_ptr()).prev.unwrap();
+        }
     }
     
     pub fn del_old(&mut self) -> Option<(K, V)>{
