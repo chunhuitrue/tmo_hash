@@ -1,5 +1,5 @@
 use hashbrown::HashMap;
-use std::{hash::{Hash}, mem, ptr::NonNull, borrow::Borrow};
+use std::{hash::{Hash}, mem, ptr::{NonNull, self}, borrow::Borrow, sync::atomic::AtomicBool};
 
 struct KeyRef<K> {
     k: *const K
@@ -25,18 +25,30 @@ impl<K> Borrow<K> for KeyRef<K> {
     }
 }
 
-type Link <K, V> = Option<NonNull<Node<K, V>>>;
-
 struct Node<K, V> {
     key: mem::MaybeUninit<K>,
     value: mem::MaybeUninit<V>,
-    prev: Link<K, V>,
-    next: Link<K, V>,
+    prev: *mut Node<K, V>,
+    next: *mut Node<K, V>,
 }
 
 impl<K, V> Node<K, V> {
     fn new(key: K, val: V) -> Self {
-        Node { key: mem::MaybeUninit::new(key), value: mem::MaybeUninit::new(val), prev: None, next: None }
+        Node {
+            key: mem::MaybeUninit::new(key),
+            value: mem::MaybeUninit::new(val),
+            prev: ptr::null_mut(),
+            next: ptr::null_mut()
+        }
+    }
+
+    fn new_dummy() -> Self {
+        Node {
+            key: mem::MaybeUninit::uninit(),
+            value: mem::MaybeUninit::uninit(),
+            prev: ptr::null_mut(),
+            next: ptr::null_mut()
+        }
     }
 }
 
@@ -45,24 +57,27 @@ where K: Eq + Hash
 {
     hash: HashMap<KeyRef<K>, NonNull<Node<K, V>>>,
     capacity: usize,
-    head: Link<K, V>,           // 最老未使用的
-    tail: Link<K, V>
+    head: *mut Node<K, V>,
+    tail: *mut Node<K, V>,
 }
 
 impl<K, V> TmoHash<K, V>
 where K: Eq + Hash
 {
     pub fn new(capacity: usize) -> TmoHash<K, V> {
-        TmoHash {
+        let tmo = TmoHash {
             hash: HashMap::with_capacity(capacity),
             capacity,
-            head: None,
-            tail: None
+            head: Box::into_raw(Box::new(Node::new_dummy())),
+            tail: Box::into_raw(Box::new(Node::new_dummy())),
+        };
+        unsafe {
+            (*tmo.head).next = tmo.tail;
+            (*tmo.tail).prev = tmo.head;
         }
+        tmo
     }
 
-    // todo 提供一个接口。如果存在，就返回node，不存在就插入。或者插入失败。方便使用
-    
     /// 根据key，判断是否存在节点
     pub fn contains_key(&self, key: &K) -> bool {
         self.hash.contains_key(key)
@@ -70,7 +85,7 @@ where K: Eq + Hash
     
     /// 插入一个k v对儿。
     /// 如果已经存在，会替代。
-    /// 因为限于在流表场景下使用，所以在inser之前，用户需要确保节点不存在，也就是不要产生替代的情况 
+    /// 因为限于在流表场景下使用，所以在insert之前，用户需要确保节点不存在，也就是不要产生替代的情况 
     pub fn insert(&mut self, key: K, val: V) -> Result<(), TmoError>{
         if self.is_empty() || self.is_full() {
            return Err(TmoError::InsertErr);
@@ -78,33 +93,28 @@ where K: Eq + Hash
 
         unsafe {
             let new = NonNull::new_unchecked(Box::into_raw(Box::new(Node::new(key, val))));
-            self.attach(&new);
-            let node_ptr: *mut Node<K, V> = new.as_ptr();
-            let keyref = (*node_ptr).key.as_ptr();
+            let new_ptr = new.as_ptr();            
+            let keyref = (*new_ptr).key.as_ptr();
+            self.attach(new_ptr);
             self.hash.insert(KeyRef { k: keyref }, new);
         }
         Ok(())
     }
 
     /// 新结点添加到尾部，头部是老的，尾部是新的 
-    fn attach(&mut self, new: &NonNull<Node<K, V>>) {
+    fn attach(&mut self, node: *mut Node<K, V>) {
         unsafe {
-            if let Some(old) = self.tail {
-                (*old.as_ptr()).next = Some(*new);
-                (*new.as_ptr()).prev = Some(old);
-            } else {
-                self.head = Some(*new);
-            }
-            self.tail = Some(*new);
+            (*node).prev = (*self.tail).prev;
+            (*node).next = self.tail;
+            (*self.tail).prev = node;
+            (*(*node).prev).next = node;
         }
     }
 
-    fn detach(&mut self, new: &NonNull<Node<K, V>>) {
+    fn detach(&mut self, node: *mut Node<K, V>) {    
         unsafe {
-            if self.head == Some(*new) && self.tail == Some(*new) {
-                
-            }
-            // let prev= (*new.as_ptr()).prev.unwrap();
+            (*(*node).prev).next = (*node).next;
+            (*(*node).next).prev = (*node).prev;
         }
     }
     
