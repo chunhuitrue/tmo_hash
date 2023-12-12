@@ -1,5 +1,5 @@
 use hashbrown::HashMap;
-use std::{hash::{Hash}, mem, ptr::{NonNull, self}, borrow::Borrow, sync::atomic::AtomicBool};
+use std::{hash::{Hash}, mem, ptr::{NonNull, self}, borrow::Borrow};
 
 struct KeyRef<K> {
     k: *const K
@@ -64,6 +64,14 @@ where K: Eq + Hash
 impl<K, V> TmoHash<K, V>
 where K: Eq + Hash
 {
+
+    /// # Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let tmo: TmoHash<String, usize> = TmoHash::new(10);
+    /// ```     
     pub fn new(capacity: usize) -> TmoHash<K, V> {
         let tmo = TmoHash {
             hash: HashMap::with_capacity(capacity),
@@ -76,11 +84,6 @@ where K: Eq + Hash
             (*tmo.tail).prev = tmo.head;
         }
         tmo
-    }
-
-    /// 根据key，判断是否存在节点
-    pub fn contains_key(&self, key: &K) -> bool {
-        self.hash.contains_key(key)
     }
     
     /// 插入一个k v对儿。
@@ -101,27 +104,22 @@ where K: Eq + Hash
         Ok(())
     }
 
-    /// 新结点添加到尾部，头部是老的，尾部是新的 
-    fn attach(&mut self, node: *mut Node<K, V>) {
-        unsafe {
-            (*node).prev = (*self.tail).prev;
-            (*node).next = self.tail;
-            (*self.tail).prev = node;
-            (*(*node).prev).next = node;
-        }
-    }
-
-    fn detach(&mut self, node: *mut Node<K, V>) {    
-        unsafe {
-            (*(*node).prev).next = (*node).next;
-            (*(*node).next).prev = (*node).prev;
+    // 删除一个key
+    pub fn delete(&mut self, k: &K) {
+        if let Some(node) = self.hash.remove(k) {
+            let mut node = unsafe { *Box::from_raw(node.as_ptr()) };
+            self.detach(&mut node);
+            let Node { key: _, value: _, ..} = node;
         }
     }
     
-    pub fn del_old(&mut self) -> Option<(K, V)>{
-        todo!()
+    // todo 查找
+    
+    /// 根据key，判断是否存在节点
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.hash.contains_key(key)
     }
-
+    
     pub fn capacity(&self) -> usize {
         self.capacity
     }
@@ -138,8 +136,33 @@ where K: Eq + Hash
         self.hash.len() >= self.capacity
     }
 
+    pub fn pop_old(&mut self) -> Option<(K, V)>{
+        // if self.is_empty() {
+        //     return None;
+        // }
+        
+        todo!()
+    }
+    
     pub fn clear(&mut self) {
-        while self.del_old().is_some() {}
+        while self.pop_old().is_some() {}
+    }
+
+    /// 新结点添加到尾部，头部是老的，尾部是新的 
+    fn attach(&mut self, node: *mut Node<K, V>) {
+        unsafe {
+            (*node).prev = (*self.tail).prev;
+            (*node).next = self.tail;
+            (*self.tail).prev = node;
+            (*(*node).prev).next = node;
+        }
+    }
+
+    fn detach(&mut self, node: *mut Node<K, V>) {    
+        unsafe {
+            (*(*node).prev).next = (*node).next;
+            (*(*node).next).prev = (*node).prev;
+        }
     }
 }
 
