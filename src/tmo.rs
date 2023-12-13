@@ -88,10 +88,19 @@ where K: Eq + Hash
     
     /// 插入一个k v对儿。
     /// 如果已经存在，会替代。
-    /// 因为限于在流表场景下使用，所以在insert之前，用户需要确保节点不存在，也就是不要产生替代的情况 
+    /// 因为限于在流表场景下使用，所以在insert之前，用户需要确保节点不存在，也就是不要产生替代的情况
+    /// # Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    ///
+    /// assert_eq!(Ok(()), tmo.insert(1, "a"));
+    /// ```     
     pub fn insert(&mut self, key: K, val: V) -> Result<(), TmoError>{
-        if self.is_empty() || self.is_full() {
-           return Err(TmoError::InsertErr);
+        if self.capacity == 0 || self.is_full() {
+            return Err(TmoError::InsertErr);
         }
 
         unsafe {
@@ -169,10 +178,11 @@ where K: Eq + Hash
 unsafe impl<K: Send, V: Send> Send for TmoHash<K, V> where K: Eq + Hash {}
 unsafe impl<K: Sync, V: Sync> Sync for TmoHash<K, V> where K: Eq + Hash {}
 
-
+#[derive(Debug, Eq, PartialEq)]
 pub enum TmoError {
     InsertErr
 }
+
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
