@@ -64,7 +64,6 @@ where K: Eq + Hash
 impl<K, V> TmoHash<K, V>
 where K: Eq + Hash
 {
-
     /// # Example
     ///
     /// ```
@@ -86,8 +85,8 @@ where K: Eq + Hash
         tmo
     }
     
-    /// 插入一个k v对儿。
-    /// 如果已经存在，会替代。
+    /// 插入一个k v对儿，如果已经存在，会替代。
+    /// 返回插入value的可变引用
     /// 因为限于在流表场景下使用，所以在insert之前，用户需要确保节点不存在，也就是不要产生替代的情况
     /// # Example
     ///
@@ -95,12 +94,13 @@ where K: Eq + Hash
     /// use tmohash::TmoHash;
     ///
     /// let mut tmo = TmoHash::new(10);
-    ///
-    /// assert_eq!(Ok(()), tmo.insert(1, "a"));
+    /// assert_eq!(Some(&mut "a"), tmo.insert(1, "a"));
+    /// assert!(tmo.contains_key(&1));
+    /// assert!(!tmo.contains_key(&2));
     /// ```     
-    pub fn insert(&mut self, key: K, val: V) -> Result<(), TmoError>{
+    pub fn insert(&mut self, key: K, val: V) -> Option<&mut V>{
         if self.capacity == 0 || self.is_full() {
-            return Err(TmoError::InsertErr);
+            return None;
         }
 
         unsafe {
@@ -109,11 +109,26 @@ where K: Eq + Hash
             let keyref = (*new_ptr).key.as_ptr();
             self.attach(new_ptr);
             self.hash.insert(KeyRef { k: keyref }, new);
+            Some(&mut *(*new_ptr).value.as_mut_ptr())
         }
-        Ok(())
     }
-
-    // 删除一个key
+    
+    /// 删除一个key
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert(1, "a");
+    /// tmo.insert(2, "b");
+    /// tmo.insert(3, "c");
+    /// tmo.delete(&2);
+    /// assert!(tmo.contains_key(&1));
+    /// assert!(tmo.contains_key(&3));
+    /// assert!(!tmo.contains_key(&2));
+    /// ```
     pub fn delete(&mut self, k: &K) {
         if let Some(node) = self.hash.remove(k) {
             let mut node = unsafe { *Box::from_raw(node.as_ptr()) };
@@ -125,22 +140,84 @@ where K: Eq + Hash
     // todo 查找
     
     /// 根据key，判断是否存在节点
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert(1, "a");
+    /// tmo.insert(2, "b");
+    /// assert!(tmo.contains_key(&1));
+    /// assert!(tmo.contains_key(&2));
+    /// assert!(!tmo.contains_key(&3));
+    /// ```
     pub fn contains_key(&self, key: &K) -> bool {
         self.hash.contains_key(key)
     }
-    
+
+    /// 返回最大容量
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let tmo: TmoHash<usize, String> = TmoHash::new(10);
+    /// assert_eq!(tmo.capacity(), 10);
+    /// ```
     pub fn capacity(&self) -> usize {
         self.capacity
     }
-    
+
+    /// 返回已有数据的个数
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// assert_eq!(tmo.len(), 0);
+    /// tmo.insert(1, "a");
+    /// tmo.insert(2, "b");
+    /// assert_eq!(tmo.len(), 2);
+    /// ```
     pub fn len(&self) -> usize {
         self.hash.len()
     }
 
+    /// 返回是否为空
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// assert!(tmo.is_empty());
+    /// tmo.insert(1, "a");
+    /// assert!(!tmo.is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.hash.is_empty()
     }
 
+    /// 返回是否已满
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo: TmoHash<usize, usize> = TmoHash::new(10);
+    /// assert!(!tmo.is_full());
+    /// for i in 0..10 {
+    ///     tmo.insert(i, i);
+    /// }
+    /// assert!(tmo.is_full());
+    /// ```
     pub fn is_full(&self) -> bool {
         self.hash.len() >= self.capacity
     }
@@ -152,7 +229,22 @@ where K: Eq + Hash
         
         todo!()
     }
-    
+
+    /// 清空tmohash
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert(1, "a");
+    /// tmo.insert(2, "b");
+    /// tmo.clear();
+    /// assert_eq!(tmo.len(), 0);
+    /// assert!(tmo.is_empty());
+    /// assert_eq!(tmo.capacity(), 10);
+    /// ```
     pub fn clear(&mut self) {
         while self.pop_old().is_some() {}
     }
