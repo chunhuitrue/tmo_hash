@@ -1,5 +1,5 @@
 use hashbrown::HashMap;
-use std::{hash::{Hash}, mem, ptr::{NonNull, self}, borrow::Borrow};
+use std::{hash::Hash, mem, ptr::{NonNull, self}, borrow::Borrow};
 
 struct KeyRef<K> {
     k: *const K
@@ -57,7 +57,7 @@ where K: Eq + Hash
 {
     hash: HashMap<KeyRef<K>, NonNull<Node<K, V>>>,
     capacity: usize,
-    head: *mut Node<K, V>,
+    head: *mut Node<K, V>,      // 可能最老的节点，新的节点都在tail，那老的节点会逐渐剩下到head上
     tail: *mut Node<K, V>,
 }
 
@@ -136,8 +136,6 @@ where K: Eq + Hash
             let Node { key: _, value: _, ..} = node;
         }
     }
-    
-    // todo 查找
     
     /// 根据key，判断是否存在节点
     ///
@@ -222,14 +220,6 @@ where K: Eq + Hash
         self.hash.len() >= self.capacity
     }
 
-    pub fn pop_old(&mut self) -> Option<(K, V)>{
-        // if self.is_empty() {
-        //     return None;
-        // }
-        
-        todo!()
-    }
-
     /// 清空tmohash
     ///
     /// #Example
@@ -246,9 +236,127 @@ where K: Eq + Hash
     /// assert_eq!(tmo.capacity(), 10);
     /// ```
     pub fn clear(&mut self) {
-        while self.pop_old().is_some() {}
+        while self.pop().is_some() {}
     }
 
+    /// 弹出head节点。可能是最老的
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert(1, "a");
+    /// tmo.insert(2, "b");
+    /// tmo.insert(3, "c");
+    /// assert_eq!(Some((1, "a")), tmo.pop());
+    /// assert_eq!(tmo.len(), 2);
+    /// assert!(!tmo.contains_key(&1));
+    /// ```
+    pub fn pop(&mut self) -> Option<(K, V)> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let node = self.remove()?;
+        let node = *node;
+        let Node { key, value, .. } = node;
+        unsafe { Some((key.assume_init(), value.assume_init())) }
+    }
+
+    /// 根据key，查询返回value的引用。因为是不变引用，说明没有更新，所以不需要重新移动到链表尾部
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert(1, "a");
+    /// tmo.insert(2, "b");
+    /// tmo.insert(3, "c");
+    /// assert_eq!(Some((&"a")), tmo.get(&1));
+    /// assert_eq!(Some((&"b")), tmo.get(&2));
+    /// assert_eq!(Some((&"c")), tmo.get(&3));
+    /// assert_ne!(Some((&"d")), tmo.get(&4));    
+    /// ```
+    pub fn get(&mut self, k: &K) -> Option<&V> {
+        if let Some(node) = self.hash.get(k) {
+            let node_ptr = node.as_ptr();
+            Some(unsafe { &*(*node_ptr).value.as_ptr() })
+        } else {
+            None
+        }
+    }
+
+    /// 根据key，查询返回value的可变引用
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert(1, "a");
+    /// tmo.insert(2, "b");
+    /// tmo.insert(3, "c");
+    /// let node = tmo.get_mut(&1).unwrap();
+    /// *node = &"d";
+    /// assert_eq!(Some((&"d")), tmo.get(&1));
+    /// ```
+    pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
+        if let Some(node) = self.hash.get(k) {
+            let node_ptr = node.as_ptr();
+            self.detach(node_ptr);
+            self.attach(node_ptr);
+            Some(unsafe { &mut *(*node_ptr).value.as_mut_ptr() })
+        } else {
+            None
+        }
+    }
+
+    /// 查看最老一端的node
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// assert_eq!(None, tmo.peek());
+    /// tmo.insert(1, "a");
+    /// tmo.insert(2, "b");
+    /// assert_eq!(Some((&1, &"a")), tmo.peek());
+    /// assert!(tmo.contains_key(&1));
+    /// ```
+    pub fn peek(&self) -> Option<(&K, &V)> {
+        if self.is_empty() {
+            None
+        } else {
+            unsafe {
+                let key = &(*(*(*self.head).next).key.as_ptr());
+                let val = &(*(*(*self.head).next).value.as_ptr());
+                Some((key, val))
+            }
+        }
+    }
+    
+    // remove 最老的一端的第一个node
+    fn remove(&mut self) -> Option<Box<Node<K, V>>> {
+        unsafe {
+            let prev = (*self.head).next;
+            if prev != self.head {
+                let old_key = KeyRef { k: &(*(*(*self.head).next).key.as_ptr()) };
+                let old_node = self.hash.remove(&old_key).unwrap();
+                let node_ptr = old_node.as_ptr();
+                self.detach(node_ptr);
+                Some(Box::from_raw(node_ptr))
+            } else {
+                None
+            }
+        }
+    }
+    
     /// 新结点添加到尾部，头部是老的，尾部是新的 
     fn attach(&mut self, node: *mut Node<K, V>) {
         unsafe {
@@ -269,24 +377,3 @@ where K: Eq + Hash
 
 unsafe impl<K: Send, V: Send> Send for TmoHash<K, V> where K: Eq + Hash {}
 unsafe impl<K: Sync, V: Sync> Sync for TmoHash<K, V> where K: Eq + Hash {}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum TmoError {
-    InsertErr
-}
-
-
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
