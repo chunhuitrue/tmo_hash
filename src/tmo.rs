@@ -1,5 +1,6 @@
 use hashbrown::HashMap;
 use std::{hash::Hash, mem, ptr::{NonNull, self}, borrow::Borrow};
+use crate::Iter;
 
 struct KeyRef<K> {
     k: *const K
@@ -25,11 +26,11 @@ impl<K> Borrow<K> for KeyRef<K> {
     }
 }
 
-struct Node<K, V> {
-    key: mem::MaybeUninit<K>,
-    value: mem::MaybeUninit<V>,
+pub(crate) struct Node<K, V> {
+    pub(crate) key: mem::MaybeUninit<K>,
+    pub(crate) value: mem::MaybeUninit<V>,
     prev: *mut Node<K, V>,
-    next: *mut Node<K, V>,
+    pub(crate) next: *mut Node<K, V>,
 }
 
 impl<K, V> Node<K, V> {
@@ -64,6 +65,8 @@ where K: Eq + Hash
 impl<K, V> TmoHash<K, V>
 where K: Eq + Hash
 {
+
+    
     /// # Example
     ///
     /// ```
@@ -340,6 +343,103 @@ where K: Eq + Hash
             }
         }
     }
+
+    /// 从最老的node开始迭代
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert("a", 1);
+    /// tmo.insert("b", 2);
+    /// tmo.insert("c", 3);
+    /// let sum = tmo.iter().map(|x| x.1).sum();
+    /// assert_eq!(6, sum);
+    /// ```
+    pub fn iter(&self) -> Iter<'_, K, V> {
+        Iter {
+            done: 0,
+            len: self.len(),
+            next: unsafe { (*self.head).next },
+            phantom: std::marker::PhantomData
+        }
+    }
+
+    /// 从最老的一端开始遍历，根据闭包返回确定是否保留此节点
+    /// 闭包为true 删除，为fals 不删除，保留
+    ///
+    /// 遇到第一个不满足条件的就返回。用于老化tmo场景。
+    /// 从最老开始，一直删除到不满足闭包条件的第一个node为止。并不遍历所有节点。只从最老开始遍历到第一个不需要老化为止。
+    /// 这样，既能尽快删除了所有需要老化的节点，也不会遍历过多
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert("a", 1);
+    /// tmo.insert("b", 2);
+    /// tmo.insert("c", 3);
+    /// tmo.insert("d", 10);
+    /// tmo.insert("e", 11);
+    /// tmo.insert("f", 12);
+    /// tmo.insert("g", 4);    
+    /// ```
+    pub fn ageing<F>(&mut self, fun: F)
+    where F: Fn(&K, &V) -> bool
+    {
+        if self.is_empty() {
+            return;
+        }
+
+        while let Some((key, val)) = self.peek() {
+            if fun(key, val) {
+                unsafe {        // 和remove一样，删除head的第一个node，因为peek就是head的第一个node
+                    let prev = (*self.head).next;
+                    if prev != self.head {
+                        let old_key = KeyRef { k: &(*(*(*self.head).next).key.as_ptr()) };
+                        let old_node = self.hash.remove(&old_key).unwrap();
+                        let node_ptr = old_node.as_ptr();
+                        self.detach(node_ptr);
+                    }
+                }
+            } else {
+                return;
+            }
+        }
+    }
+    
+    // pub fn peek_ageing<F>(&mut self, fun: F)
+    // where F: Fn(&K, &V) -> bool
+    // {
+    //     if self.is_empty() {
+    //         return;
+    //     }
+        
+    //     while let Some((key, val)) = self.peek() {
+    //         if fun(key, val) {
+    //             self.delete(key)
+    //         } else {
+    //             return;
+    //         }
+    //     }
+    // }
+    
+    // pub fn iter_ageing<F>(&mut self, fun: F)
+    // where F: FnMut(&K, &mut V) -> bool
+    // {
+    //     for item in self.iter() {
+    //         let &mut (ref key, ref mut val) = item.as_mut();
+    //         if !fun(key, val) {
+    //             return;
+    //         } else {
+    //             self.delete(key);
+    //         }
+    //     }
+    // }
     
     // remove 最老的一端的第一个node
     fn remove(&mut self) -> Option<Box<Node<K, V>>> {
@@ -377,3 +477,5 @@ where K: Eq + Hash
 
 unsafe impl<K: Send, V: Send> Send for TmoHash<K, V> where K: Eq + Hash {}
 unsafe impl<K: Sync, V: Sync> Sync for TmoHash<K, V> where K: Eq + Hash {}
+
+
