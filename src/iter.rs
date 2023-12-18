@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData};
+use std::{hash::Hash, marker::PhantomData, fmt};
 use crate::tmo::*;
 
 pub struct Iter<'a, K, V> 
@@ -34,3 +34,31 @@ where K: Eq + Hash
         (0, Some(self.len - self.done))
     }
 }
+
+impl<K, V> fmt::Debug for Iter<'_, K, V>
+where K: Eq + Hash + fmt::Debug
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.done >= self.len {
+            write!(f, "Iter [{:?}/{:?}]", self.done, self.len)
+        } else {
+            let next = unsafe { &(*(*self.next).key.as_ptr())};
+            write!(f, "Iter [{:?}/{:?} next: {:?}]", self.done, self.len, next)
+        }
+    }
+}
+
+impl<K, V> fmt::Display for Iter<'_, K, V>
+where K: Eq + Hash + fmt::Debug + fmt::Display, V: fmt::Display
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.done >= self.len {
+            write!(f, "Iter [{}/{}]", self.done, self.len)
+        } else {
+            let next = unsafe { &(*(*self.next).key.as_ptr())};
+            write!(f, "Iter [{}/{} next: {}]", self.done, self.len, next)
+        }
+    }
+}
+
+

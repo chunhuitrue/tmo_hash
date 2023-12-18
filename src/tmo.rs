@@ -386,7 +386,13 @@ where K: Eq + Hash
     /// tmo.insert("d", 10);
     /// tmo.insert("e", 11);
     /// tmo.insert("f", 12);
-    /// tmo.insert("g", 4);    
+    /// tmo.insert("g", 4);
+    /// tmo.ageing(|&_k, &v| v < 10);
+    /// assert_eq!(4, tmo.len());
+    /// assert!(!tmo.contains_key(&"a"));
+    /// assert!(!tmo.contains_key(&"b"));
+    /// assert!(!tmo.contains_key(&"c"));
+    /// assert!(tmo.contains_key(&"g"));
     /// ```
     pub fn ageing<F>(&mut self, fun: F)
     where F: Fn(&K, &V) -> bool
@@ -411,35 +417,6 @@ where K: Eq + Hash
             }
         }
     }
-    
-    // pub fn peek_ageing<F>(&mut self, fun: F)
-    // where F: Fn(&K, &V) -> bool
-    // {
-    //     if self.is_empty() {
-    //         return;
-    //     }
-        
-    //     while let Some((key, val)) = self.peek() {
-    //         if fun(key, val) {
-    //             self.delete(key)
-    //         } else {
-    //             return;
-    //         }
-    //     }
-    // }
-    
-    // pub fn iter_ageing<F>(&mut self, fun: F)
-    // where F: FnMut(&K, &mut V) -> bool
-    // {
-    //     for item in self.iter() {
-    //         let &mut (ref key, ref mut val) = item.as_mut();
-    //         if !fun(key, val) {
-    //             return;
-    //         } else {
-    //             self.delete(key);
-    //         }
-    //     }
-    // }
     
     // remove 最老的一端的第一个node
     fn remove(&mut self) -> Option<Box<Node<K, V>>> {
