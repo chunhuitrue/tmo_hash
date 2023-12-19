@@ -1,4 +1,5 @@
 use hashbrown::HashMap;
+use core::fmt;
 use std::{hash::Hash, mem, ptr::{NonNull, self}, borrow::Borrow};
 use crate::Iter;
 
@@ -455,4 +456,54 @@ where K: Eq + Hash
 unsafe impl<K: Send, V: Send> Send for TmoHash<K, V> where K: Eq + Hash {}
 unsafe impl<K: Sync, V: Sync> Sync for TmoHash<K, V> where K: Eq + Hash {}
 
+impl<K, V> fmt::Debug for TmoHash<K, V>
+where
+    K: fmt::Debug + Hash + Eq,
+    V: fmt::Debug
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TmoHash [")?;
+        if self.is_empty() {
+            return write!(f, "]");
+        } else {
+            write!(f, " ")?;
+        }
+        let mut comma = false;
+        let iter = self.iter();
+        for kv in iter {
+            if comma {
+                write!(f, ", ")?;
+            } else {
+                comma = true;
+            }
+            write!(f, "({:?}, {:?})", kv.0, kv.1)?;
+        }
+        write!(f, " ]")
+    }
+}
 
+/// display
+///
+/// # Examples
+///
+/// ```
+/// use tmohash::TmoHash;
+///
+/// let mut tmo = TmoHash::new(10);
+/// tmo.insert(1, "a");
+/// tmo.insert(2, "b");
+/// tmo.insert(3, "c");
+/// assert_eq!("[1: a, 2: b, 3: c]", format!("{}", tmo));
+/// ```
+impl<K, V> fmt::Display for TmoHash<K, V>
+where
+    K: fmt::Display + Hash + Eq + Clone,
+    V: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let items = self.iter()
+            .map(|x| format!("{}: {}", x.0, x.1))
+            .collect::<Vec<String>>();
+        write!(f, "[{}]", items.join(", "))        
+    }
+}
