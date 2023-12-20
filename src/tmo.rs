@@ -66,14 +66,13 @@ where K: Eq + Hash
 impl<K, V> TmoHash<K, V>
 where K: Eq + Hash
 {
-
-    
     /// # Example
     ///
     /// ```
     /// use tmohash::TmoHash;
     ///
-    /// let tmo: TmoHash<String, usize> = TmoHash::new(10);
+    /// let mut tmo: TmoHash<String, usize> = TmoHash::new(10);
+    /// tmo.clear();    
     /// ```     
     pub fn new(capacity: usize) -> TmoHash<K, V> {
         let tmo = TmoHash {
@@ -101,6 +100,7 @@ where K: Eq + Hash
     /// assert_eq!(Some(&mut "a"), tmo.insert(1, "a"));
     /// assert!(tmo.contains_key(&1));
     /// assert!(!tmo.contains_key(&2));
+    /// tmo.clear();    
     /// ```     
     pub fn insert(&mut self, key: K, val: V) -> Option<&mut V>{
         if self.capacity == 0 || self.is_full() {
@@ -128,12 +128,13 @@ where K: Eq + Hash
     /// tmo.insert(1, "a");
     /// tmo.insert(2, "b");
     /// tmo.insert(3, "c");
-    /// tmo.delete(&2);
+    /// tmo.remove(&2);
     /// assert!(tmo.contains_key(&1));
     /// assert!(tmo.contains_key(&3));
     /// assert!(!tmo.contains_key(&2));
+    /// tmo.clear();    
     /// ```
-    pub fn delete(&mut self, k: &K) {
+    pub fn remove(&mut self, k: &K) {
         if let Some(node) = self.hash.remove(k) {
             let mut node = unsafe { *Box::from_raw(node.as_ptr()) };
             self.detach(&mut node);
@@ -154,6 +155,7 @@ where K: Eq + Hash
     /// assert!(tmo.contains_key(&1));
     /// assert!(tmo.contains_key(&2));
     /// assert!(!tmo.contains_key(&3));
+    /// tmo.clear();    
     /// ```
     pub fn contains_key(&self, key: &K) -> bool {
         self.hash.contains_key(key)
@@ -166,8 +168,9 @@ where K: Eq + Hash
     /// ```
     /// use tmohash::TmoHash;
     ///
-    /// let tmo: TmoHash<usize, String> = TmoHash::new(10);
+    /// let mut tmo: TmoHash<usize, String> = TmoHash::new(10);
     /// assert_eq!(tmo.capacity(), 10);
+    /// tmo.clear();    
     /// ```
     pub fn capacity(&self) -> usize {
         self.capacity
@@ -185,6 +188,7 @@ where K: Eq + Hash
     /// tmo.insert(1, "a");
     /// tmo.insert(2, "b");
     /// assert_eq!(tmo.len(), 2);
+    /// tmo.clear();    
     /// ```
     pub fn len(&self) -> usize {
         self.hash.len()
@@ -201,6 +205,7 @@ where K: Eq + Hash
     /// assert!(tmo.is_empty());
     /// tmo.insert(1, "a");
     /// assert!(!tmo.is_empty());
+    /// tmo.clear();    
     /// ```
     pub fn is_empty(&self) -> bool {
         self.hash.is_empty()
@@ -219,6 +224,7 @@ where K: Eq + Hash
     ///     tmo.insert(i, i);
     /// }
     /// assert!(tmo.is_full());
+    /// tmo.clear();    
     /// ```
     pub fn is_full(&self) -> bool {
         self.hash.len() >= self.capacity
@@ -238,6 +244,7 @@ where K: Eq + Hash
     /// assert_eq!(tmo.len(), 0);
     /// assert!(tmo.is_empty());
     /// assert_eq!(tmo.capacity(), 10);
+    /// tmo.clear();    
     /// ```
     pub fn clear(&mut self) {
         while self.pop().is_some() {}
@@ -257,13 +264,14 @@ where K: Eq + Hash
     /// assert_eq!(Some((1, "a")), tmo.pop());
     /// assert_eq!(tmo.len(), 2);
     /// assert!(!tmo.contains_key(&1));
+    /// tmo.clear();    
     /// ```
     pub fn pop(&mut self) -> Option<(K, V)> {
         if self.is_empty() {
             return None;
         }
 
-        let node = self.remove()?;
+        let node = self.remove_old()?;
         let node = *node;
         let Node { key, value, .. } = node;
         unsafe { Some((key.assume_init(), value.assume_init())) }
@@ -283,7 +291,8 @@ where K: Eq + Hash
     /// assert_eq!(Some((&"a")), tmo.get(&1));
     /// assert_eq!(Some((&"b")), tmo.get(&2));
     /// assert_eq!(Some((&"c")), tmo.get(&3));
-    /// assert_ne!(Some((&"d")), tmo.get(&4));    
+    /// assert_ne!(Some((&"d")), tmo.get(&4));
+    /// tmo.clear();    
     /// ```
     pub fn get(&mut self, k: &K) -> Option<&V> {
         if let Some(node) = self.hash.get(k) {
@@ -308,6 +317,7 @@ where K: Eq + Hash
     /// let node = tmo.get_mut(&1).unwrap();
     /// *node = &"d";
     /// assert_eq!(Some((&"d")), tmo.get(&1));
+    /// tmo.clear();    
     /// ```
     pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
         if let Some(node) = self.hash.get(k) {
@@ -332,15 +342,16 @@ where K: Eq + Hash
     /// tmo.insert(2, "b");
     /// assert_eq!(Some((&1, &"a")), tmo.peek());
     /// assert!(tmo.contains_key(&1));
+    /// tmo.clear();    
     /// ```
     pub fn peek(&self) -> Option<(&K, &V)> {
         if self.is_empty() {
             None
         } else {
             unsafe {
-                let key = &(*(*(*self.head).next).key.as_ptr());
-                let val = &(*(*(*self.head).next).value.as_ptr());
-                Some((key, val))
+                let ref_key = &(*(*(*self.head).next).key.as_ptr());
+                let ref_val = &(*(*(*self.head).next).value.as_ptr());
+                Some((ref_key, ref_val))
             }
         }
     }
@@ -358,6 +369,7 @@ where K: Eq + Hash
     /// tmo.insert("c", 3);
     /// let sum = tmo.iter().map(|x| x.1).sum();
     /// assert_eq!(6, sum);
+    /// tmo.clear();    
     /// ```
     pub fn iter(&self) -> Iter<'_, K, V> {
         Iter {
@@ -394,6 +406,7 @@ where K: Eq + Hash
     /// assert!(!tmo.contains_key(&"b"));
     /// assert!(!tmo.contains_key(&"c"));
     /// assert!(tmo.contains_key(&"g"));
+    /// tmo.clear();    
     /// ```
     pub fn ageing<F>(&mut self, fun: F)
     where F: Fn(&K, &V) -> bool
@@ -411,6 +424,7 @@ where K: Eq + Hash
                         let old_node = self.hash.remove(&old_key).unwrap();
                         let node_ptr = old_node.as_ptr();
                         self.detach(node_ptr);
+                        let _ =  Some(Box::from_raw(node_ptr));
                     }
                 }
             } else {
@@ -420,7 +434,7 @@ where K: Eq + Hash
     }
     
     // remove 最老的一端的第一个node
-    fn remove(&mut self) -> Option<Box<Node<K, V>>> {
+    fn remove_old(&mut self) -> Option<Box<Node<K, V>>> {
         unsafe {
             let prev = (*self.head).next;
             if prev != self.head {
@@ -449,6 +463,18 @@ where K: Eq + Hash
         unsafe {
             (*(*node).prev).next = (*node).next;
             (*(*node).next).prev = (*node).prev;
+        }
+    }
+}
+
+impl<K, V> Drop for TmoHash<K, V>
+where K: Hash + Eq
+{
+    fn drop(&mut self) {
+        self.clear();
+        unsafe {
+            let _ = Box::from_raw(self.head);
+            let _ = Box::from_raw(self.tail);
         }
     }
 }
@@ -494,6 +520,7 @@ where
 /// tmo.insert(2, "b");
 /// tmo.insert(3, "c");
 /// assert_eq!("[1: a, 2: b, 3: c]", format!("{}", tmo));
+/// tmo.clear();
 /// ```
 impl<K, V> fmt::Display for TmoHash<K, V>
 where
@@ -519,6 +546,7 @@ mod tests {
         tmo.insert(2, "b");
         tmo.insert(3, "c");
         assert_eq!("TmoHash [ (1, \"a\"), (2, \"b\"), (3, \"c\") ]", format!("{:?}", tmo));
+        tmo.clear();
     }
 
     #[test]
@@ -530,6 +558,7 @@ mod tests {
         tmo.insert(2, "b");
         tmo.insert(3, "c");
         assert_eq!("[1: a, 2: b, 3: c]", format!("{}", tmo));
+        tmo.clear();        
     }
     
     #[test]
@@ -545,7 +574,8 @@ mod tests {
 
         iter.next();
         iter.next();
-        assert_eq!("Iter [3/3]", format!("{:?}", iter));        
+        assert_eq!("Iter [3/3]", format!("{:?}", iter));
+        tmo.clear();        
     }
 
     #[test]
@@ -561,6 +591,7 @@ mod tests {
 
         iter.next();
         iter.next();
-        assert_eq!("Iter [3/3]", format!("{}", iter));        
+        assert_eq!("Iter [3/3]", format!("{}", iter));
+        tmo.clear();        
     }
 }
