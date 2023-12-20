@@ -507,3 +507,60 @@ where
         write!(f, "[{}]", items.join(", "))        
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_debug() {
+        let mut tmo = TmoHash::new(10);
+        tmo.insert(1, "a");
+        tmo.insert(2, "b");
+        tmo.insert(3, "c");
+        assert_eq!("TmoHash [ (1, \"a\"), (2, \"b\"), (3, \"c\") ]", format!("{:?}", tmo));
+    }
+
+    #[test]
+    fn test_display() {
+        let mut tmo: TmoHash<usize, &str> = TmoHash::new(10);
+        assert_eq!("[]", format!("{}", tmo));
+        
+        tmo.insert(1, "a");
+        tmo.insert(2, "b");
+        tmo.insert(3, "c");
+        assert_eq!("[1: a, 2: b, 3: c]", format!("{}", tmo));
+    }
+    
+    #[test]
+    fn test_iter_debug() {
+        let mut tmo = TmoHash::new(10);
+        tmo.insert(1, "a");
+        tmo.insert(2, "b");
+        tmo.insert(3, "c");
+
+        let mut iter = tmo.iter();
+        iter.next();
+        assert_eq!("Iter [1/3 next: 2]", format!("{:?}", iter));
+
+        iter.next();
+        iter.next();
+        assert_eq!("Iter [3/3]", format!("{:?}", iter));        
+    }
+
+    #[test]
+    fn test_iter_display() {
+        let mut tmo = TmoHash::new(10);
+        tmo.insert(1, "a");
+        tmo.insert(2, "b");
+        tmo.insert(3, "c");
+
+        let mut iter = tmo.iter();
+        iter.next();
+        assert_eq!("Iter [1/3 next: 2]", format!("{}", iter));
+
+        iter.next();
+        iter.next();
+        assert_eq!("Iter [3/3]", format!("{}", iter));        
+    }
+}
