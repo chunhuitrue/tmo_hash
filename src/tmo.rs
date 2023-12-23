@@ -89,6 +89,35 @@ where K: Eq + Hash
     }
     
     /// 插入一个k v对儿，如果已经存在，会替代。
+    /// 返回插入value的引用
+    /// 因为限于在流表场景下使用，所以在insert之前，用户需要确保节点不存在，也就是不要产生替代的情况
+    /// # Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// assert_eq!(Some(&"a"), tmo.insert(1, "a"));
+    /// assert!(tmo.contains_key(&1));
+    /// assert!(!tmo.contains_key(&2));
+    /// tmo.clear();    
+    /// ```
+    pub fn insert(&mut self, key: K, val: V) -> Option<&V>{
+        if self.capacity == 0 || self.is_full() {
+            return None;
+        }
+
+        unsafe {
+            let new = NonNull::new_unchecked(Box::into_raw(Box::new(Node::new(key, val))));
+            let new_ptr = new.as_ptr();            
+            let keyref = (*new_ptr).key.as_ptr();
+            self.attach(new_ptr);
+            self.hash.insert(KeyRef { k: keyref }, new);
+            Some(&*(*new_ptr).value.as_mut_ptr())
+        }
+    }
+
+    /// 插入一个k v对儿，如果已经存在，会替代。
     /// 返回插入value的可变引用
     /// 因为限于在流表场景下使用，所以在insert之前，用户需要确保节点不存在，也就是不要产生替代的情况
     /// # Example
@@ -97,12 +126,12 @@ where K: Eq + Hash
     /// use tmohash::TmoHash;
     ///
     /// let mut tmo = TmoHash::new(10);
-    /// assert_eq!(Some(&mut "a"), tmo.insert(1, "a"));
+    /// assert_eq!(Some(&mut "a"), tmo.insert_mut(1, "a"));
     /// assert!(tmo.contains_key(&1));
     /// assert!(!tmo.contains_key(&2));
     /// tmo.clear();    
-    /// ```     
-    pub fn insert(&mut self, key: K, val: V) -> Option<&mut V>{
+    /// ```
+    pub fn insert_mut(&mut self, key: K, val: V) -> Option<&mut V>{
         if self.capacity == 0 || self.is_full() {
             return None;
         }
@@ -294,7 +323,7 @@ where K: Eq + Hash
     /// assert_ne!(Some((&"d")), tmo.get(&4));
     /// tmo.clear();    
     /// ```
-    pub fn get(&mut self, k: &K) -> Option<&V> {
+    pub fn get(&self, k: &K) -> Option<&V> {
         if let Some(node) = self.hash.get(k) {
             let node_ptr = node.as_ptr();
             Some(unsafe { &*(*node_ptr).value.as_ptr() })
@@ -302,7 +331,7 @@ where K: Eq + Hash
             None
         }
     }
-
+    
     /// 根据key，查询返回value的可变引用
     ///
     /// #Example
