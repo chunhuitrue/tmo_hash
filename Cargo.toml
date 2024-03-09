@@ -7,3 +7,7 @@ edition = "2021"
 
 [dependencies]
 hashbrown = "0.14"
+
+# [features]
+# default = ["pool"]
+# pool = []

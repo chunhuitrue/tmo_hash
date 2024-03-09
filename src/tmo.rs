@@ -1,6 +1,11 @@
 use hashbrown::HashMap;
 use core::fmt;
-use std::{hash::Hash, mem, ptr::{NonNull, self}, borrow::Borrow};
+use std::{
+    hash::Hash,
+    mem, ptr::{NonNull, self},
+    borrow::Borrow,
+};
+use std::collections::VecDeque;
 use crate::Iter;
 
 struct KeyRef<K> {
@@ -13,13 +18,13 @@ impl<K: Hash> Hash for KeyRef<K> {
     }
 }
 
-impl<K: PartialEq> PartialEq for KeyRef<K>  {
+impl<K: PartialEq> PartialEq for KeyRef<K> {
     fn eq(&self, other: &Self) -> bool {
         unsafe { (*self.k).eq(&*other.k) }
     }
 }
 
-impl<K: Eq> Eq for KeyRef<K>  {}
+impl<K: Eq> Eq for KeyRef<K> {}
 
 impl<K> Borrow<K> for KeyRef<K> {
     fn borrow(&self) -> &K {
@@ -27,29 +32,28 @@ impl<K> Borrow<K> for KeyRef<K> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Node<K, V> {
     pub(crate) key: mem::MaybeUninit<K>,
     pub(crate) value: mem::MaybeUninit<V>,
-    prev: *mut Node<K, V>,
+    pub(crate) prev: *mut Node<K, V>,
     pub(crate) next: *mut Node<K, V>,
 }
 
 impl<K, V> Node<K, V> {
-    fn new(key: K, val: V) -> Self {
-        Node {
-            key: mem::MaybeUninit::new(key),
-            value: mem::MaybeUninit::new(val),
-            prev: ptr::null_mut(),
-            next: ptr::null_mut()
-        }
-    }
-
     fn new_dummy() -> Self {
         Node {
             key: mem::MaybeUninit::uninit(),
             value: mem::MaybeUninit::uninit(),
             prev: ptr::null_mut(),
             next: ptr::null_mut()
+        }
+    }
+
+    fn init_dummy(&mut self, key: K, val: V) {
+        unsafe {
+            self.key.as_mut_ptr().write(key);
+            self.value.as_mut_ptr().write(val);
         }
     }
 }
@@ -61,6 +65,7 @@ where K: Eq + Hash
     capacity: usize,
     head: *mut Node<K, V>,      // 可能最老的节点，新的节点都在tail，那老的节点会逐渐剩下到head上
     tail: *mut Node<K, V>,
+    pool: VecDeque<Box<Node<K, V>>>,
 }
 
 impl<K, V> TmoHash<K, V>
@@ -75,19 +80,24 @@ where K: Eq + Hash
     /// tmo.clear();    
     /// ```     
     pub fn new(capacity: usize) -> TmoHash<K, V> {
-        let tmo = TmoHash {
+        let mut tmo = TmoHash {
             hash: HashMap::with_capacity(capacity),
             capacity,
             head: Box::into_raw(Box::new(Node::new_dummy())),
             tail: Box::into_raw(Box::new(Node::new_dummy())),
+            pool: VecDeque::new()
         };
         unsafe {
             (*tmo.head).next = tmo.tail;
             (*tmo.tail).prev = tmo.head;
         }
+        for _ in 0..capacity  {
+            let dummy = Box::new(Node::<K, V>::new_dummy());            
+            tmo.pool.push_front(dummy);
+        }
         tmo
     }
-    
+
     /// 插入一个k v对儿，如果已经存在，会替代。
     /// 返回插入value的引用
     /// 因为限于在流表场景下使用，所以在insert之前，用户需要确保节点不存在，也就是不要产生替代的情况
@@ -103,12 +113,14 @@ where K: Eq + Hash
     /// tmo.clear();    
     /// ```
     pub fn insert(&mut self, key: K, val: V) -> Option<&V>{
-        if self.capacity == 0 || self.is_full() {
+        if self.capacity == 0 || self.is_full() || self.pool.is_empty() {
             return None;
         }
 
+        let mut node = self.pool.pop_front().unwrap();
+        node.init_dummy(key, val);
         unsafe {
-            let new = NonNull::new_unchecked(Box::into_raw(Box::new(Node::new(key, val))));
+            let new = NonNull::new_unchecked(Box::into_raw(node));
             let new_ptr = new.as_ptr();            
             let keyref = (*new_ptr).key.as_ptr();
             self.attach(new_ptr);
@@ -116,7 +128,7 @@ where K: Eq + Hash
             Some(&*(*new_ptr).value.as_mut_ptr())
         }
     }
-
+    
     /// 插入一个k v对儿，如果已经存在，会替代。
     /// 返回插入value的可变引用
     /// 因为限于在流表场景下使用，所以在insert之前，用户需要确保节点不存在，也就是不要产生替代的情况
@@ -132,12 +144,14 @@ where K: Eq + Hash
     /// tmo.clear();    
     /// ```
     pub fn insert_mut(&mut self, key: K, val: V) -> Option<&mut V>{
-        if self.capacity == 0 || self.is_full() {
+        if self.capacity == 0 || self.is_full() || self.pool.is_empty() {
             return None;
         }
 
+        let mut node = self.pool.pop_front().unwrap();
+        node.init_dummy(key, val);
         unsafe {
-            let new = NonNull::new_unchecked(Box::into_raw(Box::new(Node::new(key, val))));
+            let new = NonNull::new_unchecked(Box::into_raw(node));            
             let new_ptr = new.as_ptr();            
             let keyref = (*new_ptr).key.as_ptr();
             self.attach(new_ptr);
@@ -165,9 +179,9 @@ where K: Eq + Hash
     /// ```
     pub fn remove(&mut self, k: &K) {
         if let Some(node) = self.hash.remove(k) {
-            let mut node = unsafe { *Box::from_raw(node.as_ptr()) };
-            self.detach(&mut node);
-            let Node { key: _, value: _, ..} = node;
+            let mut node = unsafe { Box::from_raw(node.as_ptr()) };
+            self.detach(&mut *node);
+            self.pool.push_front(node);
         }
     }
     
@@ -277,6 +291,7 @@ where K: Eq + Hash
     /// ```
     pub fn clear(&mut self) {
         while self.pop().is_some() {}
+        self.pool.clear();
     }
 
     /// 弹出head节点。可能是最老的
@@ -429,7 +444,7 @@ where K: Eq + Hash
     /// tmo.insert("e", 11);
     /// tmo.insert("f", 12);
     /// tmo.insert("g", 4);
-    /// tmo.ageing(|&_k, &v| v < 10);
+    /// tmo.timeout(|&_k, &v| v < 10);
     /// assert_eq!(4, tmo.len());
     /// assert!(!tmo.contains_key(&"a"));
     /// assert!(!tmo.contains_key(&"b"));
@@ -437,7 +452,7 @@ where K: Eq + Hash
     /// assert!(tmo.contains_key(&"g"));
     /// tmo.clear();    
     /// ```
-    pub fn ageing<F>(&mut self, fun: F)
+    pub fn timeout<F>(&mut self, fun: F)
     where F: Fn(&K, &V) -> bool
     {
         if self.is_empty() {
@@ -493,6 +508,22 @@ where K: Eq + Hash
             (*(*node).prev).next = (*node).next;
             (*(*node).next).prev = (*node).prev;
         }
+    }
+
+    /// 返回内存池中当前剩余node的数量
+    ///
+    /// #Example
+    ///
+    /// ```
+    /// use tmohash::TmoHash;
+    ///
+    /// let mut tmo = TmoHash::new(10);
+    /// tmo.insert("a", 1);
+    /// tmo.insert("b", 2);
+    /// assert_eq!(8, tmo.pool_len());
+    /// ```    
+    pub fn pool_len(&self) -> usize {
+        self.pool.len()
     }
 }
 
@@ -567,7 +598,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    
     #[test]
     fn test_debug() {
         let mut tmo = TmoHash::new(10);
@@ -622,5 +653,27 @@ mod tests {
         iter.next();
         assert_eq!("Iter [3/3]", format!("{}", iter));
         tmo.clear();        
+    }
+
+    #[test]
+    fn test_pool() {
+        let mut tmo = TmoHash::new(10);
+        assert_eq!(10, tmo.pool_len());
+        
+        tmo.insert(1, "a");
+        assert_eq!(9, tmo.pool_len());
+        tmo.insert(2, "b");
+        assert_eq!(8, tmo.pool_len());
+        tmo.insert(3, "c");
+        assert_eq!(7, tmo.pool_len());
+
+        tmo.remove(&1);
+        assert_eq!(8, tmo.pool_len());
+        tmo.remove(&2);
+        assert_eq!(9, tmo.pool_len());
+        tmo.remove(&3);
+        assert_eq!(10, tmo.pool_len());
+        
+        tmo.clear()
     }
 }
