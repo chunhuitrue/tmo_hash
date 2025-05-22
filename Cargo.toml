@@ -1,13 +1,15 @@
 [package]
 name = "tmohash"
 version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2024"
+description = "hash can timeout"
+documentation = "https://docs.rs/tmohash"
+keywords = ["hash"]
+homepage = "https://github.com/chunhuitrue/tmo_hash"
+repository = "https://github.com/chunhuitrue/tmo_hash"
+license = "MIT/Apache-2.0"
+readme = "README.md"
+authors = ["李春辉"]
 
 [dependencies]
 hashbrown = "0.14"
-
-# [features]
-# default = ["pool"]
-# pool = []
